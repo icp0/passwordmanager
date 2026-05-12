@@ -4,6 +4,7 @@ import java.util.UUID
 
 class PasswordRepository {
     private val cryptoManager = PasswordCryptoManager()
+    private val backupManager = PasswordBackupManager()
     private val passwords = mutableListOf<EncryptedPasswordEntry>()
 
     init {
@@ -48,6 +49,22 @@ class PasswordRepository {
 
     fun deletePassword(id: String): List<PasswordEntry> {
         passwords.removeAll { it.id == id }
+        return getPasswords()
+    }
+
+    fun exportEncryptedBackup(): String {
+        return backupManager.exportBackup(passwords)
+    }
+
+    fun importEncryptedBackup(backupText: String): List<PasswordEntry> {
+        val importedPasswords = backupManager.importBackup(backupText)
+
+        importedPasswords.forEach { entry ->
+            cryptoManager.decrypt(entry.encryptedPassword)
+        }
+
+        passwords.clear()
+        passwords.addAll(importedPasswords)
         return getPasswords()
     }
 
