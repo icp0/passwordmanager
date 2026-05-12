@@ -250,6 +250,73 @@ class PasswordManagerViewModel : ViewModel() {
         }
     }
 
+    fun exportEncryptedBackup() {
+        _uiState.update {
+            if (it.authenticationState == AuthenticationState.LOCKED) {
+                return@update it.copy(
+                    isBiometricPromptRequested = it.biometricAvailability == BiometricAvailability.AVAILABLE,
+                    authenticationMessage = "Разблокируйте хранилище, чтобы экспортировать резервную копию"
+                )
+            }
+
+            it.copy(
+                exportedBackupText = repository.exportEncryptedBackup(),
+                backupMessage = "Зашифрованная резервная копия создана"
+            )
+        }
+    }
+
+    fun updateImportBackupText(value: String) {
+        _uiState.update {
+            it.copy(
+                importBackupText = value,
+                backupMessage = null
+            )
+        }
+    }
+
+    fun importEncryptedBackup() {
+        _uiState.update {
+            if (it.authenticationState == AuthenticationState.LOCKED) {
+                return@update it.copy(
+                    isBiometricPromptRequested = it.biometricAvailability == BiometricAvailability.AVAILABLE,
+                    authenticationMessage = "Разблокируйте хранилище, чтобы импортировать резервную копию"
+                )
+            }
+
+            if (it.importBackupText.isBlank()) {
+                return@update it.copy(backupMessage = "Вставьте текст резервной копии")
+            }
+
+            try {
+                val updatedPasswords = repository.importEncryptedBackup(it.importBackupText)
+                it.copy(
+                    passwords = updatedPasswords,
+                    visiblePasswordIds = emptySet(),
+                    autofillSuggestions = buildAutofillSuggestions(
+                        requestedService = it.autofillProfile.requestedService,
+                        passwords = updatedPasswords
+                    ),
+                    autofillProfile = it.autofillProfile.copy(selectedSuggestion = null),
+                    backupMessage = "Резервная копия успешно импортирована"
+                )
+            } catch (exception: Exception) {
+                it.copy(
+                    backupMessage = "Не удалось импортировать резервную копию: ${exception.message ?: "неверный формат"}"
+                )
+            }
+        }
+    }
+
+    fun clearExportedBackup() {
+        _uiState.update {
+            it.copy(
+                exportedBackupText = "",
+                backupMessage = null
+            )
+        }
+    }
+
     private fun updateForm(reducer: (PasswordFormState) -> PasswordFormState) {
         _uiState.update {
             it.copy(

@@ -23,6 +23,9 @@ data class PasswordManagerUiState(
     val visiblePasswordIds: Set<String> = emptySet(),
     val autofillProfile: AutofillProfile = AutofillProfile(),
     val autofillSuggestions: List<AutofillSuggestion> = emptyList(),
+    val exportedBackupText: String = "",
+    val importBackupText: String = "",
+    val backupMessage: String? = null,
     val errorMessage: String? = null
 ) {
     val filteredPasswords: List<PasswordEntry>

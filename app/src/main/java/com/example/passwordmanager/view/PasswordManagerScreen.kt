@@ -91,6 +91,10 @@ fun PasswordManagerScreen(
         onAutofillServiceChanged = viewModel::updateAutofillService,
         onAutofillSuggestionSelected = viewModel::selectAutofillSuggestion,
         onClearAutofillSelection = viewModel::clearAutofillSelection,
+        onExportBackup = viewModel::exportEncryptedBackup,
+        onImportBackupTextChanged = viewModel::updateImportBackupText,
+        onImportBackup = viewModel::importEncryptedBackup,
+        onClearExportedBackup = viewModel::clearExportedBackup,
         onToggleForm = viewModel::toggleFormVisibility,
         onServiceNameChanged = viewModel::updateServiceName,
         onUsernameChanged = viewModel::updateUsername,
@@ -115,6 +119,10 @@ private fun PasswordManagerContent(
     onAutofillServiceChanged: (String) -> Unit,
     onAutofillSuggestionSelected: (AutofillSuggestion) -> Unit,
     onClearAutofillSelection: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackupTextChanged: (String) -> Unit,
+    onImportBackup: () -> Unit,
+    onClearExportedBackup: () -> Unit,
     onToggleForm: () -> Unit,
     onServiceNameChanged: (String) -> Unit,
     onUsernameChanged: (String) -> Unit,
@@ -170,6 +178,16 @@ private fun PasswordManagerContent(
                 )
             }
 
+            item {
+                BackupPanel(
+                    uiState = uiState,
+                    onExportBackup = onExportBackup,
+                    onImportBackupTextChanged = onImportBackupTextChanged,
+                    onImportBackup = onImportBackup,
+                    onClearExportedBackup = onClearExportedBackup
+                )
+            }
+
             if (uiState.isFormVisible) {
                 item {
                     PasswordForm(
@@ -202,6 +220,83 @@ private fun PasswordManagerContent(
                         onDelete = { onDeletePassword(entry.id) }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackupPanel(
+    uiState: PasswordManagerUiState,
+    onExportBackup: () -> Unit,
+    onImportBackupTextChanged: (String) -> Unit,
+    onImportBackup: () -> Unit,
+    onClearExportedBackup: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Резервная копия",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onExportBackup) {
+                    Text("Экспорт")
+                }
+                OutlinedButton(
+                    onClick = onClearExportedBackup,
+                    enabled = uiState.exportedBackupText.isNotBlank()
+                ) {
+                    Text("Очистить")
+                }
+            }
+
+            if (uiState.exportedBackupText.isNotBlank()) {
+                OutlinedTextField(
+                    value = uiState.exportedBackupText,
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Зашифрованная копия") },
+                    minLines = 3,
+                    maxLines = 5,
+                    readOnly = true
+                )
+            }
+
+            OutlinedTextField(
+                value = uiState.importBackupText,
+                onValueChange = onImportBackupTextChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Вставьте копию для импорта") },
+                minLines = 2,
+                maxLines = 4
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(onClick = onImportBackup) {
+                    Text("Импорт")
+                }
+            }
+
+            uiState.backupMessage?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
             }
         }
     }
@@ -595,6 +690,10 @@ private fun PasswordManagerPreview() {
             onAutofillServiceChanged = {},
             onAutofillSuggestionSelected = {},
             onClearAutofillSelection = {},
+            onExportBackup = {},
+            onImportBackupTextChanged = {},
+            onImportBackup = {},
+            onClearExportedBackup = {},
             onToggleForm = {},
             onServiceNameChanged = {},
             onUsernameChanged = {},
