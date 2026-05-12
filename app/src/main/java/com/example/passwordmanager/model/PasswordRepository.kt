@@ -12,10 +12,10 @@ class PasswordRepository {
             username = "student@example.com",
             password = "Hackathon2026!",
             category = PasswordCategory.WORK,
-            note = "Demo account"
+            note = "Демо-аккаунт"
         )
         addEncryptedPassword(
-            serviceName = "Email",
+            serviceName = "Почта",
             username = "student@mail.com",
             password = "Compose#12345",
             category = PasswordCategory.PERSONAL
