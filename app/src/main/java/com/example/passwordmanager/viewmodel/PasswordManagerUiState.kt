@@ -9,17 +9,27 @@ import com.example.passwordmanager.model.PasswordCategory
 import com.example.passwordmanager.model.PasswordEntry
 import com.example.passwordmanager.model.PasswordFormState
 
+enum class AppTab(val title: String) {
+    PASSWORDS("Пароли"),
+    ADD_PASSWORD("Добавить"),
+    BACKUP("Резерв")
+}
+
 data class PasswordManagerUiState(
     val passwords: List<PasswordEntry> = emptyList(),
+    val hasAccount: Boolean = false,
+    val registrationPin: String = "",
+    val registrationPinRepeat: String = "",
+    val loginPin: String = "",
     val authenticationState: AuthenticationState = AuthenticationState.LOCKED,
     val biometricAvailability: BiometricAvailability = BiometricAvailability.UNKNOWN,
     val biometricPromptData: BiometricPromptData = BiometricPromptData(),
     val isBiometricPromptRequested: Boolean = false,
-    val authenticationMessage: String = "Разблокируйте хранилище, чтобы смотреть пароли и использовать автозаполнение",
+    val authenticationMessage: String = "Создайте PIN-код для защиты хранилища",
+    val selectedTab: AppTab = AppTab.PASSWORDS,
     val searchQuery: String = "",
     val selectedCategory: PasswordCategory? = null,
     val formState: PasswordFormState = PasswordFormState(),
-    val isFormVisible: Boolean = false,
     val visiblePasswordIds: Set<String> = emptySet(),
     val autofillProfile: AutofillProfile = AutofillProfile(),
     val autofillSuggestions: List<AutofillSuggestion> = emptyList(),
@@ -28,6 +38,9 @@ data class PasswordManagerUiState(
     val backupMessage: String? = null,
     val errorMessage: String? = null
 ) {
+    val isUnlocked: Boolean
+        get() = authenticationState == AuthenticationState.UNLOCKED
+
     val filteredPasswords: List<PasswordEntry>
         get() = passwords.filter { entry ->
             val matchesCategory = selectedCategory == null || entry.category == selectedCategory

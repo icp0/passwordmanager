@@ -1,7 +1,9 @@
 package com.example.passwordmanager.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import com.example.passwordmanager.model.AuthenticationState
+import com.example.passwordmanager.model.AccountRepository
 import com.example.passwordmanager.model.AutofillManager
 import com.example.passwordmanager.model.AutofillSuggestion
 import com.example.passwordmanager.model.BiometricAccessManager
@@ -14,70 +16,120 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
-class PasswordManagerViewModel : ViewModel() {
+class PasswordManagerViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = PasswordRepository()
+    private val accountRepository = AccountRepository(application)
     private val biometricAccessManager = BiometricAccessManager()
     private val autofillManager = AutofillManager()
 
     private val _uiState = MutableStateFlow(
         PasswordManagerUiState(
             passwords = repository.getPasswords(),
+            hasAccount = accountRepository.hasAccount(),
+            authenticationState = if (accountRepository.hasAccount()) {
+                AuthenticationState.LOCKED
+            } else {
+                AuthenticationState.LOCKED
+            },
+            authenticationMessage = if (accountRepository.hasAccount()) {
+                "Войдите по PIN-коду или биометрии"
+            } else {
+                "Создайте PIN-код для защиты хранилища"
+            },
             biometricPromptData = biometricAccessManager.createPromptData()
         )
     )
     val uiState: StateFlow<PasswordManagerUiState> = _uiState
 
     fun onBiometricAvailabilityChecked(availability: BiometricAvailability) {
-        val authenticationState = if (availability == BiometricAvailability.AVAILABLE) {
-            AuthenticationState.LOCKED
-        } else {
-            AuthenticationState.UNAVAILABLE
-        }
-        val message = if (availability == BiometricAvailability.AVAILABLE) {
-            "Биометрическая аутентификация доступна"
-        } else {
-            "Биометрическая аутентификация недоступна: ${availability.toRussianText()}"
-        }
-
         _uiState.update {
             it.copy(
                 biometricAvailability = availability,
-                authenticationState = authenticationState,
-                authenticationMessage = message,
-                isBiometricPromptRequested = false
+                authenticationMessage = if (it.hasAccount) {
+                    if (availability == BiometricAvailability.AVAILABLE) {
+                        "Войдите по PIN-коду или биометрии"
+                    } else {
+                        "Войдите по PIN-коду"
+                    }
+                } else {
+                    "Создайте PIN-код для защиты хранилища"
+                }
             )
+        }
+    }
+
+    fun updateRegistrationPin(value: String) {
+        _uiState.update { it.copy(registrationPin = value.onlyDigits(6), errorMessage = null) }
+    }
+
+    fun updateRegistrationPinRepeat(value: String) {
+        _uiState.update { it.copy(registrationPinRepeat = value.onlyDigits(6), errorMessage = null) }
+    }
+
+    fun registerAccount() {
+        val state = _uiState.value
+        val pin = state.registrationPin
+        val repeatedPin = state.registrationPinRepeat
+
+        when {
+            pin.length < MIN_PIN_LENGTH -> {
+                _uiState.update { it.copy(errorMessage = "PIN-код должен содержать минимум 4 цифры") }
+            }
+            pin != repeatedPin -> {
+                _uiState.update { it.copy(errorMessage = "PIN-коды не совпадают") }
+            }
+            else -> {
+                accountRepository.savePin(pin)
+                _uiState.update {
+                    it.copy(
+                        hasAccount = true,
+                        registrationPin = "",
+                        registrationPinRepeat = "",
+                        loginPin = "",
+                        authenticationState = AuthenticationState.UNLOCKED,
+                        authenticationMessage = "Хранилище готово к работе",
+                        errorMessage = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun updateLoginPin(value: String) {
+        _uiState.update { it.copy(loginPin = value.onlyDigits(6), errorMessage = null) }
+    }
+
+    fun loginWithPin() {
+        val pin = _uiState.value.loginPin
+        if (accountRepository.verifyPin(pin)) {
+            unlockVault("Вход выполнен")
+        } else {
+            _uiState.update { it.copy(errorMessage = "Неверный PIN-код") }
         }
     }
 
     fun requestVaultUnlock() {
         _uiState.update {
-            if (it.authenticationState == AuthenticationState.UNLOCKED) {
-                it.copy(authenticationMessage = "Хранилище уже разблокировано")
-            } else if (it.biometricAvailability == BiometricAvailability.AVAILABLE) {
-                it.copy(
+            when {
+                !it.hasAccount -> it.copy(errorMessage = "Сначала зарегистрируйтесь")
+                it.biometricAvailability == BiometricAvailability.AVAILABLE -> it.copy(
                     isBiometricPromptRequested = true,
-                    authenticationMessage = "Подтвердите биометрию для разблокировки"
+                    authenticationMessage = "Подтвердите вход биометрией"
                 )
-            } else {
-                it.copy(authenticationMessage = "Биометрическая аутентификация недоступна")
+                else -> it.copy(authenticationMessage = "Биометрия недоступна, используйте PIN-код")
             }
         }
     }
 
     fun onBiometricAuthenticationSucceeded() {
-        _uiState.update {
-            it.copy(
-                authenticationState = AuthenticationState.UNLOCKED,
-                isBiometricPromptRequested = false,
-                authenticationMessage = "Хранилище разблокировано",
-                errorMessage = null
-            )
+        if (_uiState.value.hasAccount) {
+            unlockVault("Вход по биометрии выполнен")
         }
     }
 
     fun onBiometricAuthenticationFailed() {
         _uiState.update {
-            it.copy(authenticationMessage = "Биометрическая проверка не прошла, попробуйте ещё раз")
+            it.copy(authenticationMessage = "Биометрическая проверка не прошла")
         }
     }
 
@@ -92,17 +144,19 @@ class PasswordManagerViewModel : ViewModel() {
 
     fun lockVault() {
         _uiState.update {
-            if (it.biometricAvailability == BiometricAvailability.AVAILABLE) {
-                it.copy(
-                    authenticationState = AuthenticationState.LOCKED,
-                    visiblePasswordIds = emptySet(),
-                    autofillProfile = it.autofillProfile.copy(selectedSuggestion = null),
-                    authenticationMessage = "Хранилище заблокировано"
-                )
-            } else {
-                it
-            }
+            it.copy(
+                authenticationState = AuthenticationState.LOCKED,
+                loginPin = "",
+                visiblePasswordIds = emptySet(),
+                exportedBackupText = "",
+                autofillProfile = it.autofillProfile.copy(selectedSuggestion = null),
+                authenticationMessage = "Хранилище заблокировано"
+            )
         }
+    }
+
+    fun selectTab(tab: AppTab) {
+        _uiState.update { it.copy(selectedTab = tab, errorMessage = null, backupMessage = null) }
     }
 
     fun onSearchChanged(query: String) {
@@ -111,15 +165,6 @@ class PasswordManagerViewModel : ViewModel() {
 
     fun onCategorySelected(category: PasswordCategory?) {
         _uiState.update { it.copy(selectedCategory = category) }
-    }
-
-    fun toggleFormVisibility() {
-        _uiState.update {
-            it.copy(
-                isFormVisible = !it.isFormVisible,
-                errorMessage = null
-            )
-        }
     }
 
     fun updateServiceName(value: String) {
@@ -167,7 +212,7 @@ class PasswordManagerViewModel : ViewModel() {
             it.copy(
                 passwords = updatedPasswords,
                 formState = PasswordFormState(),
-                isFormVisible = false,
+                selectedTab = AppTab.PASSWORDS,
                 autofillSuggestions = buildAutofillSuggestions(
                     requestedService = it.autofillProfile.requestedService,
                     passwords = updatedPasswords
@@ -186,25 +231,13 @@ class PasswordManagerViewModel : ViewModel() {
                 autofillSuggestions = buildAutofillSuggestions(
                     requestedService = it.autofillProfile.requestedService,
                     passwords = updatedPasswords
-                ),
-                autofillProfile = if (it.autofillProfile.selectedSuggestion?.entryId == id) {
-                    it.autofillProfile.copy(selectedSuggestion = null)
-                } else {
-                    it.autofillProfile
-                }
+                )
             )
         }
     }
 
     fun togglePasswordVisibility(id: String) {
         _uiState.update {
-            if (it.authenticationState == AuthenticationState.LOCKED) {
-                return@update it.copy(
-                    isBiometricPromptRequested = it.biometricAvailability == BiometricAvailability.AVAILABLE,
-                    authenticationMessage = "Разблокируйте хранилище, чтобы показать пароль"
-                )
-            }
-
             val updatedIds = if (id in it.visiblePasswordIds) {
                 it.visiblePasswordIds - id
             } else {
@@ -228,13 +261,6 @@ class PasswordManagerViewModel : ViewModel() {
 
     fun selectAutofillSuggestion(suggestion: AutofillSuggestion) {
         _uiState.update {
-            if (it.authenticationState == AuthenticationState.LOCKED) {
-                return@update it.copy(
-                    isBiometricPromptRequested = it.biometricAvailability == BiometricAvailability.AVAILABLE,
-                    authenticationMessage = "Разблокируйте хранилище, чтобы использовать автозаполнение"
-                )
-            }
-
             it.copy(
                 autofillProfile = it.autofillProfile.copy(selectedSuggestion = suggestion),
                 authenticationMessage = "Автозаполнение подготовлено для ${suggestion.serviceName}"
@@ -244,21 +270,12 @@ class PasswordManagerViewModel : ViewModel() {
 
     fun clearAutofillSelection() {
         _uiState.update {
-            it.copy(
-                autofillProfile = it.autofillProfile.copy(selectedSuggestion = null)
-            )
+            it.copy(autofillProfile = it.autofillProfile.copy(selectedSuggestion = null))
         }
     }
 
     fun exportEncryptedBackup() {
         _uiState.update {
-            if (it.authenticationState == AuthenticationState.LOCKED) {
-                return@update it.copy(
-                    isBiometricPromptRequested = it.biometricAvailability == BiometricAvailability.AVAILABLE,
-                    authenticationMessage = "Разблокируйте хранилище, чтобы экспортировать резервную копию"
-                )
-            }
-
             it.copy(
                 exportedBackupText = repository.exportEncryptedBackup(),
                 backupMessage = "Зашифрованная резервная копия создана"
@@ -268,22 +285,12 @@ class PasswordManagerViewModel : ViewModel() {
 
     fun updateImportBackupText(value: String) {
         _uiState.update {
-            it.copy(
-                importBackupText = value,
-                backupMessage = null
-            )
+            it.copy(importBackupText = value, backupMessage = null)
         }
     }
 
     fun importEncryptedBackup() {
         _uiState.update {
-            if (it.authenticationState == AuthenticationState.LOCKED) {
-                return@update it.copy(
-                    isBiometricPromptRequested = it.biometricAvailability == BiometricAvailability.AVAILABLE,
-                    authenticationMessage = "Разблокируйте хранилище, чтобы импортировать резервную копию"
-                )
-            }
-
             if (it.importBackupText.isBlank()) {
                 return@update it.copy(backupMessage = "Вставьте текст резервной копии")
             }
@@ -293,36 +300,41 @@ class PasswordManagerViewModel : ViewModel() {
                 it.copy(
                     passwords = updatedPasswords,
                     visiblePasswordIds = emptySet(),
+                    exportedBackupText = "",
+                    autofillProfile = it.autofillProfile.copy(selectedSuggestion = null),
                     autofillSuggestions = buildAutofillSuggestions(
                         requestedService = it.autofillProfile.requestedService,
                         passwords = updatedPasswords
                     ),
-                    autofillProfile = it.autofillProfile.copy(selectedSuggestion = null),
-                    backupMessage = "Резервная копия успешно импортирована"
+                    backupMessage = "Резервная копия импортирована"
                 )
             } catch (exception: Exception) {
                 it.copy(
-                    backupMessage = "Не удалось импортировать резервную копию: ${exception.message ?: "неверный формат"}"
+                    backupMessage = "Не удалось импортировать: ${exception.message ?: "неверный формат"}"
                 )
             }
         }
     }
 
     fun clearExportedBackup() {
+        _uiState.update { it.copy(exportedBackupText = "", backupMessage = null) }
+    }
+
+    private fun unlockVault(message: String) {
         _uiState.update {
             it.copy(
-                exportedBackupText = "",
-                backupMessage = null
+                authenticationState = AuthenticationState.UNLOCKED,
+                isBiometricPromptRequested = false,
+                loginPin = "",
+                authenticationMessage = message,
+                errorMessage = null
             )
         }
     }
 
     private fun updateForm(reducer: (PasswordFormState) -> PasswordFormState) {
         _uiState.update {
-            it.copy(
-                formState = reducer(it.formState),
-                errorMessage = null
-            )
+            it.copy(formState = reducer(it.formState), errorMessage = null)
         }
     }
 
@@ -345,15 +357,11 @@ class PasswordManagerViewModel : ViewModel() {
         )
     }
 
-    private fun BiometricAvailability.toRussianText(): String {
-        return when (this) {
-            BiometricAvailability.AVAILABLE -> "доступна"
-            BiometricAvailability.NO_HARDWARE -> "нет биометрического датчика"
-            BiometricAvailability.HARDWARE_UNAVAILABLE -> "датчик временно недоступен"
-            BiometricAvailability.NOT_ENROLLED -> "биометрия не настроена"
-            BiometricAvailability.SECURITY_UPDATE_REQUIRED -> "требуется обновление безопасности"
-            BiometricAvailability.UNSUPPORTED -> "не поддерживается устройством"
-            BiometricAvailability.UNKNOWN -> "неизвестная ошибка"
-        }
+    private fun String.onlyDigits(maxLength: Int): String {
+        return filter { it.isDigit() }.take(maxLength)
+    }
+
+    private companion object {
+        const val MIN_PIN_LENGTH = 4
     }
 }

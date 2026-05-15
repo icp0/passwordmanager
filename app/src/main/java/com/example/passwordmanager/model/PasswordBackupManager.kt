@@ -5,23 +5,22 @@ import org.json.JSONObject
 
 class PasswordBackupManager {
     fun exportBackup(entries: List<EncryptedPasswordEntry>): String {
-        val root = JSONObject()
         val items = JSONArray()
 
         entries.forEach { entry ->
-            val item = JSONObject()
-                .put(KEY_ID, entry.id)
-                .put(KEY_SERVICE_NAME, entry.serviceName)
-                .put(KEY_USERNAME, entry.username)
-                .put(KEY_PASSWORD_CIPHER_TEXT, entry.encryptedPassword.cipherText)
-                .put(KEY_PASSWORD_IV, entry.encryptedPassword.initializationVector)
-                .put(KEY_CATEGORY, entry.category.name)
-                .put(KEY_NOTE, entry.note)
-
-            items.put(item)
+            items.put(
+                JSONObject()
+                    .put(KEY_ID, entry.id)
+                    .put(KEY_SERVICE_NAME, entry.serviceName)
+                    .put(KEY_USERNAME, entry.username)
+                    .put(KEY_PASSWORD_CIPHER_TEXT, entry.encryptedPassword.cipherText)
+                    .put(KEY_PASSWORD_IV, entry.encryptedPassword.initializationVector)
+                    .put(KEY_CATEGORY, entry.category.name)
+                    .put(KEY_NOTE, entry.note)
+            )
         }
 
-        return root
+        return JSONObject()
             .put(KEY_VERSION, BACKUP_VERSION)
             .put(KEY_ITEMS, items)
             .toString()
@@ -29,9 +28,7 @@ class PasswordBackupManager {
 
     fun importBackup(backupText: String): List<EncryptedPasswordEntry> {
         val root = JSONObject(backupText.trim())
-        val version = root.optInt(KEY_VERSION, UNKNOWN_VERSION)
-
-        require(version == BACKUP_VERSION) {
+        require(root.optInt(KEY_VERSION, UNKNOWN_VERSION) == BACKUP_VERSION) {
             "Неподдерживаемая версия резервной копии"
         }
 
@@ -39,7 +36,6 @@ class PasswordBackupManager {
         return buildList {
             for (index in 0 until items.length()) {
                 val item = items.getJSONObject(index)
-
                 add(
                     EncryptedPasswordEntry(
                         id = item.getString(KEY_ID),
